@@ -30,6 +30,12 @@ static inline void print_mac(char *mac)
 	printf("\n");
 }
 
+static void set_rule(void)
+{
+
+}
+
+
 /* Handler for switch connected event */
 static void switch_connected(uint64_t datapath_id, void *user_data)
 {
@@ -46,7 +52,8 @@ static void switch_connected(uint64_t datapath_id, void *user_data)
 
 /* Install rule to forward all the packets unrelated to the switch's
  * host */
-static void packet_forward(int sw, char *src_mac, char *dst_mac, int in_port)
+static void packet_forward(int sw, char *src_mac, char *dst_mac, int in_port,
+		int tcp_src_port, int tcp_dst_port)
 {
 	int res = 0, port;
 	openflow_actions *actions;
@@ -55,14 +62,14 @@ static void packet_forward(int sw, char *src_mac, char *dst_mac, int in_port)
 
 	/* Find the number of the other port */
 	switch (in_port) {
-	case 2:
-		port = 3;
-		break;
-	case 3:
-		port = 2;
-		break;
-	default:
-		printf("Inport is %d, this shouldn't be handled here\n", in_port);
+		case 2:
+			port = 3;
+			break;
+		case 3:
+			port = 2;
+			break;
+		default:
+			printf("Inport is %d, this shouldn't be handled here\n", in_port);
 	}
 
 	printf("Must forward this to port %d\n", port);
@@ -72,8 +79,16 @@ static void packet_forward(int sw, char *src_mac, char *dst_mac, int in_port)
 	match.wildcards = OFPFW_ALL;
 	match.wildcards ^= OFPFW_DL_DST;
 	match.wildcards ^= OFPFW_DL_SRC;
+	match.wildcards ^= OFPFW_TP_SRC;
+	match.wildcards ^= OFPFW_TP_DST;
 	memcpy(match.dl_dst, dst_mac, 6);
 	memcpy(match.dl_src, src_mac, 6);
+	match.tp_src = tcp_src_port;
+	match.tp_dst = tcp_dst_port;
+	match.wildcards ^= OFPFW_NW_PROTO;
+	match.nw_proto = IPPROTO_TCP;
+	match.wildcards ^= OFPFW_DL_TYPE;
+	match.dl_type = 0x0800;
 
 	actions = create_actions();
 	append_action_output(actions, port, 0);
@@ -90,7 +105,8 @@ static void packet_forward(int sw, char *src_mac, char *dst_mac, int in_port)
 }
 
 /* Install rule to forward flow to the host */
-static void packet_to_host(int sw, char *src_mac, char *dst_mac, int in_port)
+static void packet_to_host(int sw, char *src_mac, char *dst_mac, int in_port,
+		int tcp_src_port, int tcp_dst_port)
 {
 	int res = 0;
 	openflow_actions *actions;
@@ -104,6 +120,14 @@ static void packet_to_host(int sw, char *src_mac, char *dst_mac, int in_port)
 	match.wildcards = OFPFW_ALL;
 	match.wildcards ^= OFPFW_DL_DST;
 	memcpy(match.dl_dst, dst_mac, 6);
+	match.wildcards ^= OFPFW_TP_DST;
+	match.tp_dst = tcp_dst_port;
+	match.wildcards ^= OFPFW_TP_SRC;
+	match.tp_src = tcp_src_port;
+	match.wildcards ^= OFPFW_NW_PROTO;
+	match.nw_proto = IPPROTO_TCP;
+	match.wildcards ^= OFPFW_DL_TYPE;
+	match.dl_type = 0x0800;
 
 	actions = create_actions();
 	append_action_output(actions, 1, 0);
@@ -124,8 +148,16 @@ static void packet_to_host(int sw, char *src_mac, char *dst_mac, int in_port)
 	match.wildcards = OFPFW_ALL;
 	match.wildcards ^= OFPFW_DL_DST;
 	match.wildcards ^= OFPFW_DL_SRC;
+	match.wildcards ^= OFPFW_TP_SRC;
+	match.wildcards ^= OFPFW_TP_DST;
 	memcpy(match.dl_dst, src_mac, 6);
 	memcpy(match.dl_src, dst_mac, 6);
+	match.tp_src = tcp_dst_port;
+	match.tp_dst = tcp_src_port;
+	match.wildcards ^= OFPFW_NW_PROTO;
+	match.nw_proto = IPPROTO_TCP;
+	match.wildcards ^= OFPFW_DL_TYPE;
+	match.dl_type = 0x0800;
 
 	actions = create_actions();
 	append_action_output(actions, in_port, 0);
@@ -141,7 +173,8 @@ static void packet_to_host(int sw, char *src_mac, char *dst_mac, int in_port)
 }
 
 /* Install rule to forward flow on the next port */
-static void packet_from_host(int sw, char *src_mac, char *dst_mac)
+static void packet_from_host(int sw, char *src_mac, char *dst_mac,
+		int tcp_src_port, int tcp_dst_port)
 {
 	int res = 0, next_port = sws[sw - 1].next_port;
 	openflow_actions *actions;
@@ -162,6 +195,16 @@ static void packet_from_host(int sw, char *src_mac, char *dst_mac)
 	match.wildcards = OFPFW_ALL;
 	match.wildcards ^= OFPFW_DL_SRC;
 	memcpy(match.dl_src, src_mac, 6);
+	match.wildcards ^= OFPFW_TP_SRC;
+	match.tp_src = tcp_src_port;
+	match.wildcards ^= OFPFW_TP_DST;
+	match.tp_dst = tcp_dst_port;
+	match.wildcards ^= OFPFW_NW_PROTO;
+	match.nw_proto = IPPROTO_TCP;
+	match.wildcards ^= OFPFW_DL_TYPE;
+	match.dl_type = 0x0800;
+	printf("GOTO %d, for tcp src port %d, and mac\n", next_port, tcp_src_port);
+	print_mac(src_mac);
 
 	actions = create_actions();
 	append_action_output(actions, next_port, 0);
@@ -182,8 +225,16 @@ static void packet_from_host(int sw, char *src_mac, char *dst_mac)
 	match.wildcards = OFPFW_ALL;
 	match.wildcards ^= OFPFW_DL_DST;
 	match.wildcards ^= OFPFW_DL_SRC;
+	match.wildcards ^= OFPFW_TP_SRC;
+	match.wildcards ^= OFPFW_TP_DST;
 	memcpy(match.dl_dst, src_mac, 6);
 	memcpy(match.dl_src, dst_mac, 6);
+	match.tp_src = tcp_dst_port;
+	match.tp_dst = tcp_src_port;
+	match.wildcards ^= OFPFW_NW_PROTO;
+	match.nw_proto = IPPROTO_TCP;
+	match.wildcards ^= OFPFW_DL_TYPE;
+	match.dl_type = 0x0800;
 
 	actions = create_actions();
 	append_action_output(actions, 1, 0);
@@ -209,15 +260,25 @@ void packet_in_h(uint64_t datapath_id,
 		void *user_data)
 {
 	char src_mac[6], dst_mac[6];
+	int tcp_src_port, tcp_dst_port;
 	int res = 0;
 
-	/* Get src and dest max addresses */
 	packet_info packet_info = get_packet_info(data);
+
+	/* Filter out non-TCP traffic */
+	if (!(packet_info.format & TP_TCP)) {
+		printf("BABA\n");
+		return;
+	}
+
+	/* Get packet information */
 	memcpy(src_mac, packet_info.eth_macsa, OFP_ETH_ALEN);
 	memcpy(dst_mac, packet_info.eth_macda, OFP_ETH_ALEN);
+	tcp_src_port = packet_info.tcp_src_port;
+	tcp_dst_port = packet_info.tcp_dst_port;
 
-	printf("\nReceived packet on s%dfrom port %d with info:\n",
-			(int)datapath_id, in_port);
+	printf("\nReceived packet on s%d from port %d, TCP src %d, dst %d with info:\n",
+			(int)datapath_id, in_port, tcp_src_port, tcp_dst_port);
 	print_mac(src_mac);
 	print_mac(dst_mac);
 
@@ -226,7 +287,8 @@ void packet_in_h(uint64_t datapath_id,
 	 * Switch receives a packet from its host
 	 * Forward it alternatively on the two exit ports */
 	if (!memcmp(src_mac, sws[datapath_id - 1].host_mac, 6)) {
-		packet_from_host((int)datapath_id, src_mac, dst_mac);
+		packet_from_host((int)datapath_id, src_mac, dst_mac,
+				tcp_src_port, tcp_dst_port);
 		return;
 	}
 
@@ -235,7 +297,8 @@ void packet_in_h(uint64_t datapath_id,
 	 * Switch receives a packet for its host
 	 * Set a rule to forward all packets to host */
 	if (!memcmp(dst_mac, sws[datapath_id - 1].host_mac, 6)) {
-		packet_to_host((int)datapath_id, src_mac, dst_mac, in_port);
+		packet_to_host((int)datapath_id, src_mac, dst_mac, in_port,
+				tcp_src_port, tcp_dst_port);
 		return;
 	}
 
@@ -243,7 +306,8 @@ void packet_in_h(uint64_t datapath_id,
 	/* Case 3:
 	 * Switch receives a packet which is not related to the host
 	 * Forward it on the other free port */
-	packet_forward((int)datapath_id, src_mac, dst_mac, in_port);
+	packet_forward((int)datapath_id, src_mac, dst_mac, in_port,
+			tcp_src_port, tcp_dst_port);
 }
 
 int main(int argc, char **argv)
