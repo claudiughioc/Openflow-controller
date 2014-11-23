@@ -77,3 +77,5 @@ the network traffic on the two paths:
 h1->h3: 0.0-60.6 sec  45.0 MBytes  6.23 Mbits/sec
 h2->h3: 0.0-62.7 sec  60.9 MBytes  8.14 Mbits/sec
 h2->h3: 0.0-60.3 sec  46.0 MBytes  6.40 Mbits/sec
+	You can see the differences better in the two plots:
+"results/mptcp_3iperf.png" and "results/tcp_3iperf.png".
