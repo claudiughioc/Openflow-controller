@@ -1,0 +1,79 @@
+GHIOC CONSTANTIN CLAUDIU
+SCPD
+
+	SMART TRAFFIC MANAGEMENT with
+	Openflow controllers
+
+1. Instructions
+2. Openflow controller
+3. Experiments
+
+1. The controller is located in the "controller" directory.
+	To obtain the openflow controller for TCP-only network traffic:
+		make clean; make TYPE=tcp
+	To obtain the openflow controller for MPTCP network traffic:
+		make clean; make TYPE=mptcp
+	
+	After starting the simulation in mininet, I usually run:
+		./init_arp.sh 1/2/3
+	for each host (1, 2 or 3) to add static entries in the CAM table.
+
+
+2. Openflow controller
+	The openflow controller first registers each switch and
+initializes switch specific data (next port to forward traffic on, mac
+address of the associated host) and registers a packet-in handler. This
+handler filters out the non-TCP traffic and deals with 3 cases, and
+installs rules per tuples like (src_mac, dst_mac, tcp_src_port,
+tcp_dst_port):
+	CASE 1: a packet arrives for the host associated with the
+	switch; the controller installs two rules to forward packets to
+	the host and to send packets back to the sender;
+
+	CASE 2: a packet arrives from the host associated with the
+	switch: the controller installs two rules to forward packets
+	from the host to the destination and to send them back to the
+	host;
+
+	CASE 3: a packet arrives on the switch and it's not intended for
+	the associated host; the controller installs a rule to forward
+	all such packets on the other interface (which is not connected
+	to the host).
+
+	Each time a new pair appears of (TCP src port, TCP dst port)
+which does not match the existing rules, the controller routes the flow
+on the other interface.
+
+	This version of controller deals with both TCP and MPTCP
+traffic. I started looking for the MPTCP_CAPABLE and MPTCP_JOIN flags,
+but I realized that the already implemented strategy routes the MPTCP
+subflows on separate paths. Each subflow corresponds to different
+tuples (TCP src port, TCP dst port) because, even if a client host
+connects to a single remote TCP port, MPTCP will open two ports (one for
+each subflow) on the client's side. Therefore, the controller will
+install two different flows for each subflow.
+
+
+3. Experiments
+	I used iperf to test bandwidth between different hosts both with
+TCP and with MPTCP. The "results/bandwidth.png" chart shows the bandwidth
+of the connection between h1 and h3, with and without MPTCP. The version
+without MPTCP yields maximum 10Mb/s because it uses only one patch
+whereas the MPTCP version yields 18Mb/s because it makes use of the both
+paths. The result of this experiment are pretty obvious because the
+version without MPTCP uses only one TCP connection (and only one path).
+
+	On the other hand, if we use one iperf server (on h3) and three
+iperf clients (one on h1, two on h2) and run the experiment for 60
+seconds we will have unbalanced results on TCP:
+h1->h3: 0.0-60.1 sec  33.5 MBytes  4.67 Mbits/s
+h2->h3: 0.0-60.4 sec  37.2 MBytes  5.17 Mbits/sec
+h2->h3: 0.0-60.2 sec  66.6 MBytes  9.29 Mbits/sec
+Two connection will follow a path, and one will use a free path yielding
+higher throughput.
+
+	The same experiment on MPTCP shows how the protocol tries to balance
+the network traffic on the two paths:
+h1->h3: 0.0-60.6 sec  45.0 MBytes  6.23 Mbits/sec
+h2->h3: 0.0-62.7 sec  60.9 MBytes  8.14 Mbits/sec
+h2->h3: 0.0-60.3 sec  46.0 MBytes  6.40 Mbits/sec
