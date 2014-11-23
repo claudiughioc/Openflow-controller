@@ -2,6 +2,10 @@
 #include <stdio.h>
 
 #include "trema.h"
+#define TCPO_NOOP		1
+#define TCPO_MPTCP		30
+#define MPTCP_CAPABLE		0
+#define MPTCP_JOIN		1
 
 #define SWITCH_NUMBER		3
 
@@ -28,6 +32,38 @@ static inline void print_mac(char *mac)
 	for (i = 0; i < 6; i++)
 		printf("%x, ", (int)mac[i]);
 	printf("\n");
+}
+
+static int find_mptcp_flag(packet_info pi, uint8_t flag)
+{
+	tcp_header_t *tcp_h;
+	void *tcp_o, *tcp_d;
+	uint8_t kind, length, subtype;
+
+	tcp_h = pi.l4_header;
+	tcp_o = (void *)tcp_h + sizeof(tcp_header_t);
+	tcp_d = (void *)tcp_h + tcp_h->offset * 4;
+
+
+	while (tcp_o < tcp_d) {
+		kind = *(uint8_t *)tcp_o;
+		if (kind == TCPO_MPTCP) {
+			subtype = *(uint8_t *)(tcp_o + 2);
+			subtype >>= 4;
+			return subtype == flag;
+		}
+
+		/* Skip no operation option */
+		if (kind == TCPO_NOOP) {
+			tcp_o++;
+			continue;
+		}
+
+		length = *(uint8_t *)(tcp_o + 1);
+		tcp_o += length;
+	}
+
+	return 0;
 }
 
 
@@ -187,10 +223,8 @@ void packet_in_h(uint64_t datapath_id,
 	packet_info packet_info = get_packet_info(data);
 
 	/* Filter out non-TCP traffic */
-	if (!(packet_info.format & TP_TCP)) {
-		printf("BABA\n");
+	if (!(packet_info.format & TP_TCP))
 		return;
-	}
 
 	/* Get packet information */
 	memcpy(src_mac, packet_info.eth_macsa, OFP_ETH_ALEN);
@@ -203,6 +237,11 @@ void packet_in_h(uint64_t datapath_id,
 	print_mac(src_mac);
 	print_mac(dst_mac);
 
+#if CONFIG_MPTCP
+	int is_mptcp = find_mptcp_flag(packet_info, MPTCP_CAPABLE);
+	int is_mptcp_join = find_mptcp_flag(packet_info, MPTCP_JOIN);
+	printf("MPTCP capable %d, MPTCP join %d\n", is_mptcp, is_mptcp_join);
+#endif
 
 	/* Case 1:
 	 * Switch receives a packet from its host
@@ -230,6 +269,7 @@ void packet_in_h(uint64_t datapath_id,
 	packet_forward((int)datapath_id, src_mac, dst_mac, in_port,
 			tcp_src_port, tcp_dst_port);
 }
+
 
 int main(int argc, char **argv)
 {
