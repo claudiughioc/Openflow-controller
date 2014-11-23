@@ -1,7 +1,7 @@
 #!/usr/bin/gnuplot 
 reset
 set terminal png
-set ylabel "Time (sec)"
+set xlabel "Time (sec)"
 
 
 set title "Traffic bandwitdh with iperf"
@@ -9,7 +9,7 @@ set key reverse Left outside
 set grid
 
 set style data linespoints
-set xlabel "Bandwidth (MB)"
+set ylabel "Bandwidth (Mb/s)"
 set yrange[0:20]
 set xrange[0:60]
 
